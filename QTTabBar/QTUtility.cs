@@ -1225,6 +1225,41 @@ namespace QTTabBarLib {
             return Regex.IsMatch(input, pattern);
         }
 
+        // Formats the installer or older builds may have written to InstallDate /
+        // ActivationDate, tried in addition to the current/invariant culture parse.
+        private static readonly string[] DateFormats =
+        {
+            "yyyy/MM/dd HH:mm:ss", "yyyy/M/d H:mm:ss",
+            "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd H:mm:ss"
+        };
+
+        /// <summary>
+        /// Parses a date/time string defensively, without ever throwing. Handles
+        /// null/empty input and both the current-culture and invariant/fixed-format
+        /// representations that the installer or older builds may have stored in the
+        /// registry. Returns false when the value can't be understood so callers fall
+        /// back to a default - a malformed InstallDate/ActivationDate must never be
+        /// allowed to escape as an exception and take down the Explorer host process.
+        /// </summary>
+        public static bool TryParseDate(string input, out DateTime result)
+        {
+            result = DateTime.MinValue;
+            if (IsEmptyStr(input))
+            {
+                return false;
+            }
+            if (DateTime.TryParse(input, CultureInfo.CurrentCulture, DateTimeStyles.None, out result))
+            {
+                return true;
+            }
+            if (DateTime.TryParse(input, CultureInfo.InvariantCulture, DateTimeStyles.None, out result))
+            {
+                return true;
+            }
+            return DateTime.TryParseExact(input, DateFormats, CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out result);
+        }
+
         public static bool IsShortDateStr(string input)
         {
             if (IsEmptyStr(input))

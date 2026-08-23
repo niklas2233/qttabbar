@@ -116,16 +116,27 @@ namespace QTTabBarLib {
         }
 
         private void ActivateIt() {
-            string installDateString;
-            DateTime installDate;
-            string minDate = DateTime.MinValue.ToString();
-            using(RegistryKey key = Registry.LocalMachine.OpenSubKey(RegConst.Root)) {
-                installDateString = key == null ? minDate : (string)key.GetValue("InstallDate", minDate);
-                installDate = DateTime.Parse(installDateString);
-            }
-            using(RegistryKey key = Registry.CurrentUser.CreateSubKey(RegConst.Root)) {
-                DateTime lastActivation = DateTime.Parse((string)key.GetValue("ActivationDate", minDate));
-                if(installDate.CompareTo(lastActivation) <= 0) return;
+            // This runs from SetSite, a COM entry point Explorer invokes on every window
+            // when auto-load is enabled. An exception escaping here takes the whole
+            // Explorer window down (issue #456: a malformed InstallDate/ActivationDate in
+            // the registry made DateTime.Parse throw, so every window flashed and died on
+            // open). Parse defensively and never let anything propagate to the host.
+            try {
+                string installDateString;
+                DateTime installDate;
+                string minDate = DateTime.MinValue.ToString();
+                using(RegistryKey key = Registry.LocalMachine.OpenSubKey(RegConst.Root)) {
+                    installDateString = key == null ? minDate : (string)key.GetValue("InstallDate", minDate);
+                    if(!QTUtility.TryParseDate(installDateString, out installDate)) {
+                        installDate = DateTime.MinValue;
+                    }
+                }
+                using(RegistryKey key = Registry.CurrentUser.CreateSubKey(RegConst.Root)) {
+                    DateTime lastActivation;
+                    if(!QTUtility.TryParseDate((string)key.GetValue("ActivationDate", minDate), out lastActivation)) {
+                        lastActivation = DateTime.MinValue;
+                    }
+                    if(installDate.CompareTo(lastActivation) <= 0) return;
 
                 object secViewBar = new Guid("{d2bf470e-ed1c-487f-a333-2bd8835eb6ce}").ToString("B");
                 object pvaTabBar = new Guid("{d2bf470e-ed1c-487f-a333-2bd8835eb6ce}").ToString("B");
@@ -156,8 +167,12 @@ namespace QTTabBarLib {
                     );
                 }
 
-                key.SetValue("ActivationDate", installDateString);
-                QTUtility2.flog("QTTabBar AutoLoader add ActivationDate");
+                    key.SetValue("ActivationDate", installDateString);
+                    QTUtility2.flog("QTTabBar AutoLoader add ActivationDate");
+                }
+            }
+            catch(Exception e) {
+                QTUtility2.MakeErrorLog(e, "AutoLoader.ActivateIt");
             }
         }
     }

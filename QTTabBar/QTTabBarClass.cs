@@ -264,42 +264,23 @@ namespace QTTabBarLib {
 			// Read the install and activation times to decide whether this is the first load
             try {
                 string installDateString;
-                DateTime installDate = DateTime.Now;
+                DateTime installDate;
                 string nowDateStr = DateTime.Now.ToString();
                 using(RegistryKey key = Registry.LocalMachine.OpenSubKey(RegConst.Root)) {
-                    // installDateString = key == null ? nowDateStr : (string)key.GetValue("InstallDate", nowDateStr);
-                    installDateString =  (string)key.GetValue("InstallDate");
-                    // Wrong time format, may cause initialization to fail
-                    if (QTUtility.IsSimpleDateStr(installDateString))  // Regex check that the date is in the correct format
-                    {
-                        try
-                        {
-                            QTUtility2.log("installDateString " + installDateString);
-                            installDate = DateTime.Parse(installDateString);
-                        }
-                        catch (Exception e)
-                        {
-                            try
-                            {
-                                installDate = DateTime.ParseExact(installDateString, "yyyy/MM/dd HH:mm:ss", CultureInfo.CurrentCulture);
-                            }
-                            catch (Exception e1) {
-                                key.SetValue("InstallDate", nowDateStr);
-                                installDateString = nowDateStr;
-                                // ignore exception
-                            }
-                        }
-                    }
-                    else
-                    {
-                        key.SetValue("InstallDate", nowDateStr);
-                        installDateString = nowDateStr;
-                    }
+                    installDateString = key == null ? null : (string)key.GetValue("InstallDate");
+                }
+                // HKLM is opened read-only here and Explorer is not elevated, so a bad
+                // InstallDate can only be healed in memory - the old code tried to write
+                // it back to the read-only key and threw UnauthorizedAccessException on
+                // every single launch, flooding the exception log (issue #456).
+                if (!QTUtility.TryParseDate(installDateString, out installDate))
+                {
+                    installDate = DateTime.Now;
+                    installDateString = nowDateStr;
                 }
 
                 using (RegistryKey key2 = Registry.CurrentUser.CreateSubKey(RegConst.Root))
                 {
-                    DateTime lastActivation ;
                     // DateTime lastActivation = DateTime.Parse((string)key.GetValue("ActivationDate", minDate));
                     var value = (string)key2.GetValue("ActivationDate");
                     if (value == null)
@@ -308,28 +289,15 @@ namespace QTTabBarLib {
                     }
                     else
                     {
-                        try
+                        DateTime lastActivation;
+                        if (!QTUtility.TryParseDate(value, out lastActivation))
                         {
-                            QTUtility2.log("ActivationDate " + value);
-                            lastActivation = DateTime.Parse(value);
-                        }
-                        catch (Exception e)
-                        {
-                            try
-                            {
-                                lastActivation = DateTime.ParseExact(value, "yyyy/MM/dd HH:mm:ss", CultureInfo.CurrentCulture);
-                            }
-                            catch (Exception e2)
-                            {
-                                fIsFirstLoad = true;
-                                lastActivation = installDate;
-                                key2.SetValue("ActivationDate", nowDateStr);
-                                // ignore exception 
-                            }
+                            // Malformed stored value - treat as first load and repair it.
+                            lastActivation = installDate;
+                            key2.SetValue("ActivationDate", nowDateStr);
                         }
 
                         fIsFirstLoad = installDate.CompareTo(lastActivation) >= 0;
-                        // Wrong time format, may cause initialization to fail
                         if (fIsFirstLoad)
                             key2.SetValue("ActivationDate", installDateString);
                     }
