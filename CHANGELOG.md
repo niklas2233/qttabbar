@@ -1,5 +1,6 @@
 # Changelog
 
+- [1.6.3.5 (2026)](https://github.com/niklas2233/qttabbar/releases/tag/v1.6.3.5) Built from 1.6.3: fix Windows 11 double-click and hover previews not working (QTTabBar attaches to Explorer windows again, #465); re-acquire the shell view on every navigation; "Enable QTTabBar on every Explorer window" option; dark mode restored in Options and the preview tooltip
 - [1.6.3 (2026)](https://github.com/indiff/qttabbar/releases/tag/v1.6.3) Fix garbled/mojibake text, improve capture window, performance optimizations
 - [1.6.2 (2026)](https://github.com/indiff/qttabbar/releases/tag/v1.6.2) Sync and compile fixes
 - [1.6.1 (2026)](https://github.com/indiff/qttabbar/releases/tag/v1.6.1) Fix Win11 double-click dying after long sessions (dead view heal); video preview and Explorer window auto-size; fix installer requiring reboot
