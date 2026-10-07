@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
@@ -37,13 +38,29 @@ namespace QTTabBarLib {
         private readonly ConcurrentQueue<Action> actions = new ConcurrentQueue<Action>();
         private List<NativeTab> shown = new List<NativeTab>();   // UI thread only
         private bool fApplying;                                  // UI thread only
+        private FileSystemWatcher skinWatcher;
+        private readonly System.Windows.Forms.Timer skinDebounce = new System.Windows.Forms.Timer { Interval = 300 };
+
+        // One mirror per Explorer window thread; QTTabBarClass.RefreshOptions (which Options/Apply and
+        // config broadcasts end up calling on that thread) uses this to reach it.
+        [ThreadStatic]
+        private static NativeTabMirror current;
+
+        internal static void OnOptionsChanged() {
+            if(current != null) current.RefreshOptions();
+        }
 
         public NativeTabMirror(IntPtr hwndFrame) {
             this.hwndFrame = hwndFrame;
             tabs = new QTabControl();
             tabs.RefreshOptions(true);
-            // Same dark/light backgrounds Explorer's own content area uses.
-            tabs.BackColor = QTUtility.getNightMode() ? System.Drawing.Color.FromArgb(32, 32, 32) : System.Drawing.Color.FromArgb(243, 243, 243);
+            ApplyBackColor();
+            current = this;
+            skinDebounce.Tick += (sender, args) => {
+                skinDebounce.Stop();
+                RefreshOptions();
+            };
+            WatchSkinFile();
             tabs.SelectedIndexChanged += (sender, args) => {
                 if(fApplying || tabs.SelectedIndex < 0 || tabs.SelectedIndex >= shown.Count) return;
                 actions.Enqueue(new Action { Kind = ActionKind.Select, Key = shown[tabs.SelectedIndex].Key });
@@ -62,6 +79,53 @@ namespace QTTabBarLib {
 
         public Control Bar {
             get { return tabs; }
+        }
+
+        // Same dark/light backgrounds Explorer's own content area uses.
+        private void ApplyBackColor() {
+            tabs.BackColor = QTUtility.getNightMode() ? System.Drawing.Color.FromArgb(32, 32, 32) : System.Drawing.Color.FromArgb(243, 243, 243);
+        }
+
+        private void RefreshOptions() {
+            if(tabs.IsDisposed) return;
+            QTUtility2.flog("NativeTabMirror RefreshOptions: skin=" + Config.Skin.UseTabSkin + " file=" + Config.Skin.TabImageFile);
+            tabs.RefreshOptions(false);
+            ApplyBackColor();
+            tabs.Refresh();
+            WatchSkinFile();
+        }
+
+        // Editing the skin PNG in place doesn't go through Options, so watch the file itself.
+        private void WatchSkinFile() {
+            if(skinWatcher != null) {
+                skinWatcher.EnableRaisingEvents = false;
+                skinWatcher.Dispose();
+                skinWatcher = null;
+            }
+            string file = Config.Skin.UseTabSkin ? Config.Skin.TabImageFile : null;
+            try {
+                if(string.IsNullOrEmpty(file) || !File.Exists(file)) return;
+                skinWatcher = new FileSystemWatcher(Path.GetDirectoryName(file), Path.GetFileName(file)) {
+                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName
+                };
+                FileSystemEventHandler changed = (sender, e) => {
+                    try {
+                        // Editors save in several bursts; refresh once things have settled.
+                        if(tabs.IsHandleCreated && !tabs.IsDisposed) {
+                            tabs.BeginInvoke(new MethodInvoker(() => { skinDebounce.Stop(); skinDebounce.Start(); }));
+                        }
+                    }
+                    catch(InvalidOperationException) {
+                    }
+                };
+                skinWatcher.Changed += changed;
+                skinWatcher.Created += changed;
+                skinWatcher.Renamed += (sender, e) => changed(sender, e);
+                skinWatcher.EnableRaisingEvents = true;
+            }
+            catch(Exception e) {
+                QTUtility2.log("NativeTabMirror WatchSkinFile: " + e.Message);
+            }
         }
 
         // ---- background thread -------------------------------------------------------------------
