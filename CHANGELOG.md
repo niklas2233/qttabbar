@@ -1,5 +1,6 @@
 # Changelog
 
+- [1.6.3.30 (2026)](https://github.com/niklas2233/qttabbar/releases/tag/v1.6.3.30) Built from 1.6.3 (experimental): on Windows 11, QTTabBar's own tab bar is shown under Explorer's native tabs and mirrors them, so custom tab skins, tab colours and tab icons work (opt in/out under Options > Window, applies live; right-click menu on tabs; refreshes when colours or the skin change); fix tab skin transparent corners drawn as a solid colour (#469); includes everything in 1.6.3.10
 - [1.6.3.10 (2026)](https://github.com/niklas2233/qttabbar/releases/tag/v1.6.3.10) Built from 1.6.3: fix hover previews in a second Windows 11 native tab showing the first tab's item, and a preview staying on screen after switching tabs; includes everything in 1.6.3.5
 - [1.6.3.5 (2026)](https://github.com/niklas2233/qttabbar/releases/tag/v1.6.3.5) Built from 1.6.3: fix Windows 11 double-click and hover previews not working (QTTabBar attaches to Explorer windows again, #465); re-acquire the shell view on every navigation; "Enable QTTabBar on every Explorer window" option; dark mode restored in Options and the preview tooltip
 - [1.6.3 (2026)](https://github.com/indiff/qttabbar/releases/tag/v1.6.3) Fix garbled/mojibake text, improve capture window, performance optimizations
