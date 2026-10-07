@@ -14,13 +14,14 @@ namespace QTTabBarLib {
     // Windows 11 draws Explorer's tab strip itself (WinUI), so a tab skin can't be applied to it. This
     // mirrors those native tabs into a QTabControl - one tab per native tab, same titles, icons, order
     // and selection - so QTTabBar's own drawing (including the skin) is what the user sees and clicks,
-    // and forwards selecting, closing, adding and reordering back to Explorer.
+    // and forwards selecting, closing and adding back to Explorer. Order only ever flows from Explorer to
+    // the bar: Explorer has no API to move a tab (only dragging), so the bar doesn't reorder tabs itself.
     //
     // Explorer's UI Automation providers live on its UI thread, so every UIA call (and the ShellWindows
     // lookups used for icons) is made from a dedicated background thread; calling them from the UI
     // thread would wait on itself.
     internal sealed class NativeTabMirror {
-        private enum ActionKind { Select, Close, Add, Reorder }
+        private enum ActionKind { Select, Close, Add }
 
         private sealed class NativeTab {
             public string Key;
@@ -32,7 +33,6 @@ namespace QTTabBarLib {
         private sealed class Action {
             public ActionKind Kind;
             public string Key;
-            public int ToIndex;
         }
 
         private static readonly Uia.Condition TabItemCondition =
@@ -68,15 +68,6 @@ namespace QTTabBarLib {
         private FileSystemWatcher skinWatcher;
         private readonly System.Windows.Forms.Timer skinDebounce = new System.Windows.Forms.Timer { Interval = 300 };
 
-        // Dragging a tab on the bar (UI thread only).
-        private int dragIndex = -1;
-        private Point dragStart;
-        private bool fDragging;
-        // After a drop, Explorer needs a moment to reorder; until then (and while dragging) ignore native
-        // snapshots and re-apply the latest one afterwards, so the bar neither jumps back nor misses a change.
-        private DateTime holdUntil = DateTime.MinValue;
-        private List<NativeTab> pending;
-        private readonly System.Windows.Forms.Timer resync = new System.Windows.Forms.Timer { Interval = 400 };
 
         // One mirror per Explorer window thread; QTTabBarClass.RefreshOptions (which Options/Apply and
         // config broadcasts end up calling on that thread) uses this to reach it.
@@ -103,15 +94,6 @@ namespace QTTabBarLib {
             };
             WatchSkinFile();
 
-            resync.Tick += (sender, args) => {
-                if(pending != null && !fDragging && DateTime.UtcNow >= holdUntil) {
-                    List<NativeTab> latest = pending;
-                    pending = null;
-                    Apply(latest);
-                }
-            };
-            resync.Start();
-
             tabs.SelectedIndexChanged += (sender, args) => {
                 if(fApplying || tabs.SelectedIndex < 0 || tabs.SelectedIndex >= shown.Count) return;
                 actions.Enqueue(new Action { Kind = ActionKind.Select, Key = shown[tabs.SelectedIndex].Key });
@@ -122,33 +104,6 @@ namespace QTTabBarLib {
                 }
             };
             tabs.PlusButtonClicked += (sender, e) => actions.Enqueue(new Action { Kind = ActionKind.Add });
-
-            tabs.MouseDown += (sender, e) => {
-                dragIndex = -1;
-                fDragging = false;
-                if(e.Button != MouseButtons.Left) return;
-                dragIndex = TabIndexAt(e.X);
-                dragStart = e.Location;
-            };
-            tabs.MouseMove += (sender, e) => {
-                if(dragIndex < 0 || (e.Button & MouseButtons.Left) == 0) return;
-                if(!fDragging && Math.Abs(e.X - dragStart.X) < SystemInformation.DragSize.Width) return;
-                fDragging = true;
-                int target = TabIndexAt(e.X);
-                if(target < 0) target = e.X < 0 ? 0 : shown.Count - 1;
-                if(target != dragIndex) {
-                    MoveLocally(dragIndex, target);
-                    dragIndex = target;
-                }
-            };
-            tabs.MouseUp += (sender, e) => {
-                if(fDragging && dragIndex >= 0 && dragIndex < shown.Count) {
-                    actions.Enqueue(new Action { Kind = ActionKind.Reorder, Key = shown[dragIndex].Key, ToIndex = dragIndex });
-                    holdUntil = DateTime.UtcNow.AddMilliseconds(1800);
-                }
-                fDragging = false;
-                dragIndex = -1;
-            };
 
             Thread poller = new Thread(PollLoop) { IsBackground = true, Name = "QTTabBar native tab mirror" };
             poller.SetApartmentState(ApartmentState.MTA);
@@ -242,27 +197,8 @@ namespace QTTabBarLib {
             foreach(string key in keys) actions.Enqueue(new Action { Kind = ActionKind.Close, Key = key });
         }
 
-        // Move a tab within the bar (and our own list, kept in the bar's order) while dragging.
-        private void MoveLocally(int from, int to) {
-            fApplying = true;
-            try {
-                NativeTab tab = shown[from];
-                shown.RemoveAt(from);
-                shown.Insert(to, tab);
-                tabs.TabPages.Relocate(from, to);
-                tabs.Refresh();
-            }
-            finally {
-                fApplying = false;
-            }
-        }
-
         private void Apply(List<NativeTab> now) {
             if(tabs.IsDisposed) return;
-            if(fDragging || DateTime.UtcNow < holdUntil) {
-                pending = now;
-                return;
-            }
             fApplying = true;
             try {
                 bool sameTabs = shown.Count == now.Count && shown.Select(t => t.Key).SequenceEqual(now.Select(t => t.Key));
@@ -373,9 +309,13 @@ namespace QTTabBarLib {
 
         private List<Uia.AutomationElement> ReadTabItems() {
             if(tabStrip == null) {
-                Uia.AutomationElement first = Uia.AutomationElement.FromHandle(hwndFrame).FindFirst(Uia.TreeScope.Descendants, TabItemCondition);
-                if(first == null) return null;
-                tabStrip = Uia.TreeWalker.ControlViewWalker.GetParent(first);
+                // Other tab-like items exist in the window (the Home page's Recent/Favourites pills are
+                // TabItems too), but only the native tabs carry a close button, so locate the strip from that.
+                Uia.AutomationElement close = Uia.AutomationElement.FromHandle(hwndFrame).FindFirst(Uia.TreeScope.Descendants,
+                        new Uia.PropertyCondition(Uia.AutomationElement.AutomationIdProperty, "CloseButton"));
+                if(close == null) return null;
+                Uia.AutomationElement tab = Uia.TreeWalker.ControlViewWalker.GetParent(close);
+                tabStrip = tab == null ? null : Uia.TreeWalker.ControlViewWalker.GetParent(tab);
                 if(tabStrip == null) return null;
             }
             try {
@@ -469,52 +409,7 @@ namespace QTTabBarLib {
                     }
                     break;
                 }
-                case ActionKind.Reorder:
-                    ReorderNative(action.Key, action.ToIndex);
-                    break;
             }
-        }
-
-        // Explorer offers no API to move a tab, only dragging, so perform the drag it expects: press on the
-        // tab, move across the strip in small steps (the XAML tab view needs real pointer movement), release
-        // over the tab that currently holds the destination slot, then put the cursor back where it was.
-        private void ReorderNative(string key, int toIndex) {
-            List<Uia.AutomationElement> items = ReadTabItems();
-            if(items == null) return;
-            int from = items.FindIndex(item => KeyOf(item) == key);
-            QTUtility2.flog("NativeTabMirror reorder: from=" + from + " to=" + toIndex + " tabs=" + items.Count);
-            if(from < 0 || toIndex < 0 || toIndex >= items.Count || from == toIndex) return;
-
-            System.Windows.Rect src = items[from].Current.BoundingRectangle;
-            System.Windows.Rect dst = items[toIndex].Current.BoundingRectangle;
-            if(src.IsEmpty || dst.IsEmpty) return;
-            int sx = (int)(src.X + src.Width / 2), sy = (int)(src.Y + src.Height / 2);
-            int tx = (int)(dst.X + dst.Width / 2);
-
-            Point saved = Cursor.Position;
-            try {
-                NativeInput.SetCursorPos(sx, sy);
-                Thread.Sleep(40);
-                NativeInput.mouse_event(NativeInput.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-                Thread.Sleep(80);
-                const int steps = 16;
-                for(int i = 1; i <= steps; i++) {
-                    NativeInput.SetCursorPos(sx + (tx - sx) * i / steps, sy);
-                    Thread.Sleep(20);
-                }
-                Thread.Sleep(80);
-            }
-            finally {
-                NativeInput.mouse_event(NativeInput.MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-                Thread.Sleep(60);
-                NativeInput.SetCursorPos(saved.X, saved.Y);
-            }
-        }
-
-        private static class NativeInput {
-            public const uint MOUSEEVENTF_LEFTDOWN = 0x0002, MOUSEEVENTF_LEFTUP = 0x0004;
-            [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-            [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
         }
     }
 }
