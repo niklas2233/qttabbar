@@ -89,6 +89,8 @@
   <ItemGroup>
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
+    <Reference Include="UIAutomationClient" />
+    <Reference Include="UIAutomationTypes" />
     <Reference Include="PresentationFramework.Aero" />
     <Reference Include="Ricciolo.Controls.TreeListView">
       <HintPath>Resources\Ricciolo.Controls.TreeListView.dll</HintPath>
@@ -137,6 +139,7 @@
     <Compile Include="AutoLoader.cs" />
     <Compile Include="ContextMenuOptions.cs" />
     <Compile Include="Win11BarHost.cs" />
+    <Compile Include="NativeTabMirror.cs" />
     <Compile Include="ExplorerSiteAdapter.cs" />
     <Compile Include="AutomationClasses.cs" />
     <Compile Include="BreadcrumbBar.cs" />

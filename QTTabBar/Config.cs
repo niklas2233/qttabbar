@@ -311,7 +311,7 @@ namespace QTTabBarLib {
                 // 默认关闭自动启动hook
                 AutoHookWindow = false;
                 AutoEnableExperimental = false;
-                ShowTabBar = true; // experiment: on by default so it can be tried without registry edits
+                ShowTabBar = true;
                 OpenExplorerMaximized = false;
   //              string idl = Environment.OSVersion.Version >= new Version(6, 1)
   //                       ? "::{031E4825-7B94-4DC3-B131-E946B44C8DD5}"  // Libraries

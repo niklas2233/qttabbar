@@ -245,6 +245,10 @@
 					</MultiBinding>
 				</CheckBox.IsChecked>
 			</CheckBox>
+			<CheckBox x:Name="ctxShowTabBar"
+				Content="Show QTTabBar's tab bar under Explorer's tabs, mirroring them (Windows 11, applies to new windows)"
+				IsChecked="{Binding Path=ShowTabBar}"
+				Style="{StaticResource CheckStyle}"/>
         <CheckBox x:Name="ctxShowFailNavMsg"
 				Content="Show Fail Nav Message Box" 
 				IsChecked="{Binding Path=ShowFailNavMsg}"
