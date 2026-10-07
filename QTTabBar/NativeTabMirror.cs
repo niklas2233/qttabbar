@@ -81,6 +81,7 @@ namespace QTTabBarLib {
         // Called on a window's UI thread when it attaches and whenever options change: creates, shows or
         // hides the bar so the setting takes effect in windows that are already open, without a restart.
         internal static void Sync(IntPtr hwndFrame) {
+            WatchSetting(hwndFrame);
             bool want = Config.Window.ShowTabBar && Win11BarHost.HasNativeTabs(hwndFrame);
             if(want) {
                 if(current == null) {
@@ -94,6 +95,35 @@ namespace QTTabBarLib {
             else if(current != null) {
                 current.SetEnabled(false);
             }
+        }
+
+        // The setting is changed in the Options dialog, which runs in another Explorer process, and the
+        // notification that is supposed to reach every window's process doesn't do so reliably (the
+        // inter-process broadcast regularly fails, and windows in the dialog's own process were missed).
+        // So each window also checks the saved value itself and follows it, which is cheap and always works.
+        [ThreadStatic]
+        private static System.Windows.Forms.Timer settingWatch;
+
+        private static void WatchSetting(IntPtr hwndFrame) {
+            if(settingWatch != null) return;
+            settingWatch = new System.Windows.Forms.Timer { Interval = 1000 };
+            settingWatch.Tick += (sender, args) => {
+                if(!PInvoke.IsWindow(hwndFrame)) {
+                    settingWatch.Stop();
+                    return;
+                }
+                // Compare with what this window is actually showing, not with Config: in the process that
+                // hosts the Options dialog the in-memory setting is already updated, yet its windows never
+                // heard about it.
+                object saved = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\QTTabBar\Config\Window", "ShowTabBar", null);
+                bool want = saved is int ? (int)saved != 0 : Config.Window.ShowTabBar;
+                bool showing = current != null && current.enabled;
+                if(want != showing && (!want || Win11BarHost.HasNativeTabs(hwndFrame))) {
+                    Config.Window.ShowTabBar = want;
+                    Sync(hwndFrame);
+                }
+            };
+            settingWatch.Start();
         }
 
         private void SetEnabled(bool on) {
