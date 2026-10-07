@@ -7558,7 +7558,7 @@ namespace QTTabBarLib
         internal void RefreshOptions()
         {
             QTUtility2.log("QTTabBarClass RefreshOptions");
-            NativeTabMirror.OnOptionsChanged();
+            NativeTabMirror.OnOptionsChanged(ExplorerHandle);
             // System.Runtime.InteropServices.InvalidComObjectException: COM 对象与其基础 RCW 分开后就不能再使用
             try
             {

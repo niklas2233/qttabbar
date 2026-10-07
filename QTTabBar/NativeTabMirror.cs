@@ -74,8 +74,43 @@ namespace QTTabBarLib {
         [ThreadStatic]
         private static NativeTabMirror current;
 
-        internal static void OnOptionsChanged() {
-            if(current != null) current.RefreshOptions();
+        private Win11BarHost host;
+        private volatile bool enabled = true;
+        private volatile bool fResend;
+
+        // Called on a window's UI thread when it attaches and whenever options change: creates, shows or
+        // hides the bar so the setting takes effect in windows that are already open, without a restart.
+        internal static void Sync(IntPtr hwndFrame) {
+            bool want = Config.Window.ShowTabBar && Win11BarHost.HasNativeTabs(hwndFrame);
+            if(want) {
+                if(current == null) {
+                    NativeTabMirror mirror = new NativeTabMirror(hwndFrame);   // also registers itself as current
+                    mirror.host = new Win11BarHost(mirror.Bar, hwndFrame);
+                }
+                else {
+                    current.SetEnabled(true);
+                }
+            }
+            else if(current != null) {
+                current.SetEnabled(false);
+            }
+        }
+
+        private void SetEnabled(bool on) {
+            if(enabled == on || host == null) return;
+            enabled = on;
+            if(on) {
+                fResend = true;   // tabs may have changed while hidden
+                host.Enable();
+            }
+            else {
+                host.Disable();
+            }
+        }
+
+        internal static void OnOptionsChanged(IntPtr hwndFrame) {
+            Sync(hwndFrame);
+            if(current != null && current.enabled) current.RefreshOptions();
         }
 
         public NativeTabMirror(IntPtr hwndFrame) {
@@ -248,6 +283,14 @@ namespace QTTabBarLib {
             List<string> lastSent = null;
             int tick = 0;
             while(PInvoke.IsWindow(hwndFrame)) {
+                if(!enabled) {
+                    Thread.Sleep(200);
+                    continue;
+                }
+                if(fResend) {
+                    fResend = false;
+                    lastSent = null;
+                }
                 try {
                     Action action;
                     bool fActed = false;

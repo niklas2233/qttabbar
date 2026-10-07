@@ -24,6 +24,7 @@ namespace QTTabBarLib {
         private readonly IntPtr hwndFrame;
         private readonly Timer timer = new Timer { Interval = 200 };
         private bool fParented;
+        private int appliedHeight;   // how far the file views are currently pushed down; 0 = not shifted
         private string lastState;
 
         // Logs only when the state changes, so the 200ms timer doesn't flood the log.
@@ -54,6 +55,46 @@ namespace QTTabBarLib {
             return PInvoke.FindWindowEx(hwndFrame, IntPtr.Zero, BridgeClass, null) != IntPtr.Zero;
         }
 
+        // Hide the bar and give the file views their space back (the setting was turned off).
+        public void Disable() {
+            timer.Stop();
+            try {
+                if(!PInvoke.IsWindow(hwndFrame)) return;
+                IntPtr hwndBridge = PInvoke.FindWindowEx(hwndFrame, IntPtr.Zero, BridgeClass, null);
+                if(hwndBridge != IntPtr.Zero && appliedHeight > 0) {
+                    int barTop = RectInFrame(hwndBridge, hwndFrame).bottom;
+                    foreach(IntPtr container in Containers()) {
+                        RECT rc = RectInFrame(container, hwndFrame);
+                        if(rc.top == barTop + appliedHeight) {
+                            PInvoke.SetWindowPos(container, IntPtr.Zero, rc.left, barTop, rc.right - rc.left,
+                                    rc.bottom - rc.top + appliedHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+                        }
+                    }
+                }
+                appliedHeight = 0;
+                if(fParented && bar.IsHandleCreated) PInvoke.ShowWindow(bar.Handle, 0);
+                State("disabled");
+            }
+            catch(Exception e) {
+                QTUtility2.MakeErrorLog(e, "Win11BarHost.Disable");
+            }
+        }
+
+        public void Enable() {
+            if(!PInvoke.IsWindow(hwndFrame)) return;
+            timer.Start();
+            Layout();
+        }
+
+        private List<IntPtr> Containers() {
+            List<IntPtr> containers = new List<IntPtr>();
+            IntPtr hwnd = IntPtr.Zero;
+            while((hwnd = PInvoke.FindWindowEx(hwndFrame, hwnd, "ShellTabWindowClass", null)) != IntPtr.Zero) {
+                containers.Add(hwnd);
+            }
+            return containers;
+        }
+
         private static RECT RectInFrame(IntPtr hwnd, IntPtr hwndFrame) {
             RECT rc;
             PInvoke.GetWindowRect(hwnd, out rc);
@@ -78,18 +119,21 @@ namespace QTTabBarLib {
 
                 // Every native tab has its own container; shift each one that Explorer has put
                 // directly under the header (inactive ones are repositioned on the next switch).
-                List<IntPtr> containers = new List<IntPtr>();
-                IntPtr hwnd = IntPtr.Zero;
-                while((hwnd = PInvoke.FindWindowEx(hwndFrame, hwnd, "ShellTabWindowClass", null)) != IntPtr.Zero) {
-                    containers.Add(hwnd);
-                }
-                foreach(IntPtr container in containers) {
+                foreach(IntPtr container in Containers()) {
                     RECT rc = RectInFrame(container, hwndFrame);
-                    if(rc.top == barTop && rc.bottom - rc.top > height) {
+                    if(appliedHeight > 0 && rc.top == barTop + appliedHeight) {
+                        // Pushed down by an earlier layout; follow a changed bar height.
+                        if(appliedHeight != height) {
+                            PInvoke.SetWindowPos(container, IntPtr.Zero, rc.left, barTop + height, rc.right - rc.left,
+                                    rc.bottom - rc.top + appliedHeight - height, SWP_NOZORDER | SWP_NOACTIVATE);
+                        }
+                    }
+                    else if(rc.top == barTop && rc.bottom - rc.top > height) {
                         PInvoke.SetWindowPos(container, IntPtr.Zero, rc.left, barTop + height, rc.right - rc.left,
                                 rc.bottom - rc.top - height, SWP_NOZORDER | SWP_NOACTIVATE);
                     }
                 }
+                appliedHeight = height;
 
                 if(!fParented) {
                     IntPtr hwndBar = bar.Handle;
