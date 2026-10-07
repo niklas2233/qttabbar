@@ -136,6 +136,7 @@
     <Compile Include="AppsManager.cs" />
     <Compile Include="AutoLoader.cs" />
     <Compile Include="ContextMenuOptions.cs" />
+    <Compile Include="Win11BarHost.cs" />
     <Compile Include="ExplorerSiteAdapter.cs" />
     <Compile Include="AutomationClasses.cs" />
     <Compile Include="BreadcrumbBar.cs" />

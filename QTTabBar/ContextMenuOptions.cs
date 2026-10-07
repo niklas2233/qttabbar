@@ -99,6 +99,9 @@ namespace QTTabBarLib {
                 QTTabBarClass tabBar = new QTTabBarClass();
                 tabBar.SetSite(new ExplorerSiteAdapter(webBrowser));
                 tabBar.ShowDW(true);
+                if(Config.Window.ShowTabBar) {
+                    new Win11BarHost(tabBar, (IntPtr)webBrowser.HWND);
+                }
                 QTUtility2.flog("ContextMenuOptions.AttachToWindow: SetSite/ShowDW completed");
             }
             catch(Exception ex) {
