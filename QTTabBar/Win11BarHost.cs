@@ -48,6 +48,12 @@ namespace QTTabBarLib {
             lock(alive) alive.Remove(this);
         }
 
+        // Only Explorer with native (WinUI) tabs has this header; the classic layout has a rebar that
+        // QTTabBar's own band docks into, so there is nothing to host or mirror there.
+        public static bool HasNativeTabs(IntPtr hwndFrame) {
+            return PInvoke.FindWindowEx(hwndFrame, IntPtr.Zero, BridgeClass, null) != IntPtr.Zero;
+        }
+
         private static RECT RectInFrame(IntPtr hwnd, IntPtr hwndFrame) {
             RECT rc;
             PInvoke.GetWindowRect(hwnd, out rc);
