@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
@@ -104,6 +105,24 @@ namespace QTTabBarLib {
         [ThreadStatic]
         private static System.Windows.Forms.Timer settingWatch;
 
+        [ThreadStatic]
+        private static string lastConfigSignature;
+
+        // A cheap fingerprint of the saved settings that affect the bar (skin image, colours, tab sizes,
+        // window options), used to notice that Options changed something.
+        private static string ConfigSignature() {
+            StringBuilder sb = new StringBuilder();
+            foreach(string category in new[] { "Skin", "Tabs", "Window" }) {
+                using(Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\QTTabBar\Config\" + category)) {
+                    if(key == null) continue;
+                    foreach(string name in key.GetValueNames().OrderBy(n => n, StringComparer.Ordinal)) {
+                        sb.Append(category).Append('.').Append(name).Append('=').Append(key.GetValue(name)).Append(';');
+                    }
+                }
+            }
+            return sb.ToString();
+        }
+
         private static void WatchSetting(IntPtr hwndFrame) {
             if(settingWatch != null) return;
             settingWatch = new System.Windows.Forms.Timer { Interval = 1000 };
@@ -112,6 +131,14 @@ namespace QTTabBarLib {
                     settingWatch.Stop();
                     return;
                 }
+                // Other appearance changes (skin image, colours, sizes) reach the bar through the same
+                // unreliable notification, so reload the saved settings and refresh when they change.
+                string signature = ConfigSignature();
+                if(lastConfigSignature != null && signature != lastConfigSignature) {
+                    ConfigManager.ReadConfig();
+                    if(current != null && current.enabled) current.RefreshOptions();
+                }
+                lastConfigSignature = signature;
                 // Compare with what this window is actually showing, not with Config: in the process that
                 // hosts the Options dialog the in-memory setting is already updated, yet its windows never
                 // heard about it.
