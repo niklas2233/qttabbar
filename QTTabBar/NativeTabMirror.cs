@@ -41,6 +41,10 @@ namespace QTTabBarLib {
         private const string HomePath = "::{F874310E-B6B7-47DC-BC84-B9E6B38F5903}";
 
         private readonly QTabControl tabs;
+        // QTabControl expects a managed Parent (it forwards WM_CONTEXTMENU to Parent.Handle and uses
+        // Parent.RectangleToScreen while right-dragging), so it lives inside this container, which is
+        // what actually gets parented into Explorer's window.
+        private readonly Panel container;
         private readonly IntPtr hwndFrame;
         private readonly ConcurrentQueue<Action> actions = new ConcurrentQueue<Action>();
         private List<NativeTab> shown = new List<NativeTab>();   // UI thread only; always in the bar's order
@@ -70,6 +74,9 @@ namespace QTTabBarLib {
         public NativeTabMirror(IntPtr hwndFrame) {
             this.hwndFrame = hwndFrame;
             tabs = new QTabControl();
+            container = new Panel { Margin = Padding.Empty, Padding = Padding.Empty };
+            tabs.Dock = DockStyle.Fill;
+            container.Controls.Add(tabs);
             tabs.RefreshOptions(true);
             ApplyBackColor();
             current = this;
@@ -132,12 +139,12 @@ namespace QTTabBarLib {
         }
 
         public Control Bar {
-            get { return tabs; }
+            get { return container; }
         }
 
         // Same dark/light backgrounds Explorer's own content area uses.
         private void ApplyBackColor() {
-            tabs.BackColor = QTUtility.getNightMode() ? Color.FromArgb(32, 32, 32) : Color.FromArgb(243, 243, 243);
+            tabs.BackColor = container.BackColor = QTUtility.getNightMode() ? Color.FromArgb(32, 32, 32) : Color.FromArgb(243, 243, 243);
         }
 
         private void RefreshOptions() {
