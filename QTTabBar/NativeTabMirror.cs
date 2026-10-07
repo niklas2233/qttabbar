@@ -44,7 +44,23 @@ namespace QTTabBarLib {
         // QTabControl expects a managed Parent (it forwards WM_CONTEXTMENU to Parent.Handle and uses
         // Parent.RectangleToScreen while right-dragging), so it lives inside this container, which is
         // what actually gets parented into Explorer's window.
-        private readonly Panel container;
+        private readonly BarContainer container;
+
+        // Catches the WM_CONTEXTMENU QTabControl forwards to its parent, so the menu is ours rather
+        // than Explorer's (DefWindowProc would pass it on to the Explorer frame).
+        private sealed class BarContainer : Panel {
+            public event System.Action<Point> ContextMenuRequested;
+
+            protected override void WndProc(ref Message m) {
+                if(m.Msg == 0x7B) {   // WM_CONTEXTMENU: lParam is the screen position, or -1 for the keyboard
+                    int lp = unchecked((int)m.LParam.ToInt64());
+                    Point pt = lp == -1 ? Cursor.Position : new Point((short)(lp & 0xFFFF), (short)((lp >> 16) & 0xFFFF));
+                    if(ContextMenuRequested != null) ContextMenuRequested(pt);
+                    return;
+                }
+                base.WndProc(ref m);
+            }
+        }
         private readonly IntPtr hwndFrame;
         private readonly ConcurrentQueue<Action> actions = new ConcurrentQueue<Action>();
         private List<NativeTab> shown = new List<NativeTab>();   // UI thread only; always in the bar's order
@@ -74,7 +90,8 @@ namespace QTTabBarLib {
         public NativeTabMirror(IntPtr hwndFrame) {
             this.hwndFrame = hwndFrame;
             tabs = new QTabControl();
-            container = new Panel { Margin = Padding.Empty, Padding = Padding.Empty };
+            container = new BarContainer { Margin = Padding.Empty, Padding = Padding.Empty };
+            container.ContextMenuRequested += ShowContextMenu;
             tabs.Dock = DockStyle.Fill;
             container.Controls.Add(tabs);
             tabs.RefreshOptions(true);
@@ -197,6 +214,32 @@ namespace QTTabBarLib {
                 if(x >= bounds.Left && x < bounds.Right) return i;
             }
             return -1;
+        }
+
+        private void ShowContextMenu(Point screen) {
+            int index = TabIndexAt(tabs.PointToClient(screen).X);
+            QTUtility2.flog("NativeTabMirror context menu at " + screen + " tab index=" + index + " of " + shown.Count);
+            ContextMenuStripEx menu = new ContextMenuStripEx(null, false);
+            menu.Items.Add("New tab", null, (sender, e) => actions.Enqueue(new Action { Kind = ActionKind.Add }));
+            if(index >= 0 && index < shown.Count) {
+                string key = shown[index].Key;
+                List<string> others = shown.Where(t => t.Key != key).Select(t => t.Key).ToList();
+                List<string> right = shown.Skip(index + 1).Select(t => t.Key).ToList();
+                menu.Items.Add("Close tab", null, (sender, e) => CloseTabs(new List<string> { key }));
+                if(others.Count > 0) menu.Items.Add("Close other tabs", null, (sender, e) => CloseTabs(others));
+                if(right.Count > 0) menu.Items.Add("Close tabs to the right", null, (sender, e) => CloseTabs(right));
+            }
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("QTTabBar Options...", null, (sender, e) => OptionsDialog.Open());
+            // Dispose after the click has been handled, not from inside Closed.
+            menu.Closed += (sender, e) => {
+                if(tabs.IsHandleCreated && !tabs.IsDisposed) tabs.BeginInvoke(new MethodInvoker(menu.Dispose));
+            };
+            menu.Show(screen);
+        }
+
+        private void CloseTabs(IEnumerable<string> keys) {
+            foreach(string key in keys) actions.Enqueue(new Action { Kind = ActionKind.Close, Key = key });
         }
 
         // Move a tab within the bar (and our own list, kept in the bar's order) while dragging.
